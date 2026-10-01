@@ -158,7 +158,37 @@
     };
   }
 
-  const api = { fv, pmt, pv, growth, catchUp, cardPayoff, rentVsBuy, debtVsInvest, payoffPlan, firstTenK, carCost, maxCar, budget };
+  // Loan with an optional extra monthly payment on top of the normal one.
+  function loanPayoff(balance, rate, years, extra) {
+    const base = pmt(balance, rate, years * 12);
+    const run = pay => {
+      let b = balance, months = 0, paid = 0;
+      const balances = [b];
+      while (b > 0.005 && months < 1200) {
+        b += b * rate / 12;
+        const p = Math.min(pay, b);
+        b -= p; paid += p; months++;
+        balances.push(b);
+      }
+      return { months, interest: paid - balance, balances };
+    };
+    return { payment: base, plain: run(base), faster: run(base + extra) };
+  }
+
+  // What a yearly fee costs: same contributions at return vs return - fee.
+  function feeDrag(monthly, years, rate, fee) {
+    const points = [];
+    for (let y = 1; y <= years; y++) points.push({ year: y, noFee: fv(monthly, rate, y), withFee: fv(monthly, rate - fee, y) });
+    return { noFee: fv(monthly, rate, years), withFee: fv(monthly, rate - fee, years), contributed: monthly * 12 * years, points };
+  }
+
+  // Two-bracket income tax: lowRate up to `line`, highRate on the part above.
+  function bracketTax(income, line, lowRate, highRate) {
+    const tax = Math.min(income, line) * lowRate + Math.max(0, income - line) * highRate;
+    return { tax, takeHome: income - tax };
+  }
+
+  const api = { fv, pmt, pv, growth, catchUp, cardPayoff, rentVsBuy, debtVsInvest, payoffPlan, firstTenK, carCost, maxCar, budget, loanPayoff, feeDrag, bracketTax };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.MC = api;
 })(this);

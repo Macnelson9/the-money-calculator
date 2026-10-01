@@ -148,6 +148,59 @@
       },
     },
     {
+      id: "loan", label: "Loan payoff",
+      title: "Pay off a loan early?",
+      question: "Your normal payment vs adding a little extra every month.",
+      inputs: [["balance", "Loan balance ($)", 25000], ["rate", "Interest rate (%)", 5.5], ["years", "Loan term (years)", 10], ["extra", "Extra per month ($)", 200]],
+      render(v) {
+        const l = MC.loanPayoff(v.balance, pct(v.rate), v.years, v.extra);
+        const n = Math.max(l.plain.balances.length, l.faster.balances.length);
+        return {
+          answer: `Adding ${money(v.extra)} a month clears it ${l.plain.months - l.faster.months} months sooner and saves ${money(l.plain.interest - l.faster.interest)} in interest.`,
+          stats: [
+            { k: "Normal payment", v: money(l.payment) }, { k: "Interest, normal plan", v: money(l.plain.interest), cls: "cost" },
+            { k: `Months with +${money(v.extra)}`, v: l.faster.months }, { k: `Interest with +${money(v.extra)}`, v: money(l.faster.interest), cls: "grow" },
+          ],
+          chart: { labels: [...Array(n).keys()], xTitle: "Month", sets: [["Normal plan", l.plain.balances, "--cost"], [`+${money(v.extra)}/month`, l.faster.balances, "--grow"]] },
+        };
+      },
+    },
+    {
+      id: "fees", label: "Fund fees",
+      title: "What does a 1% fee really cost?",
+      question: "The same monthly investing, with and without a yearly fee.",
+      inputs: [["monthly", "Invest per month ($)", 500], ["years", "Years", 30], ["rate", "Return before fees (%)", 7], ["fee", "Yearly fee (%)", 1]],
+      render(v) {
+        const f = MC.feeDrag(v.monthly, v.years, pct(v.rate), pct(v.fee));
+        return {
+          answer: `A ${v.fee}% fee costs you ${money(f.noFee - f.withFee)} over ${v.years} years.`,
+          stats: [
+            { k: "Without the fee", v: money(f.noFee), cls: "grow" }, { k: `With a ${v.fee}% fee`, v: money(f.withFee), cls: "cost" },
+            { k: "You put in", v: money(f.contributed) },
+          ],
+          chart: { labels: f.points.map(p => p.year), xTitle: "Year", sets: [["No fee", f.points.map(p => p.noFee), "--grow"], [`${v.fee}% fee`, f.points.map(p => p.withFee), "--cost"]] },
+        };
+      },
+    },
+    {
+      id: "raise", label: "Raise & tax brackets",
+      title: "Can a raise lower your take-home pay?",
+      question: "Example brackets: a lower rate up to a line, a higher rate only on income above it.",
+      inputs: [["before", "Income before raise ($)", 39000], ["after", "Income after raise ($)", 41000], ["line", "Bracket line ($)", 40000], ["low", "Rate below the line (%)", 10], ["high", "Rate above the line (%)", 20]],
+      render(v) {
+        const a = MC.bracketTax(v.before, v.line, pct(v.low), pct(v.high)), b = MC.bracketTax(v.after, v.line, pct(v.low), pct(v.high));
+        return {
+          answer: `After the raise you keep ${money(b.takeHome - a.takeHome)} more. Only income above ${money(v.line)} pays ${v.high}%.`,
+          stats: [
+            { k: "Take-home before", v: money(a.takeHome) }, { k: "Take-home after", v: money(b.takeHome), cls: "grow" },
+            { k: "Tax before", v: money(a.tax) }, { k: "Tax after", v: money(b.tax), cls: "cost" },
+          ],
+          chart: { type: "bar", labels: ["Before raise", "After raise"], sets: [["Take-home", [a.takeHome, b.takeHome], "--grow"], ["Tax", [a.tax, b.tax], "--cost"]] },
+          note: "Illustrative brackets, not any country's real rates. Some benefits do stop at certain incomes, so check those separately.",
+        };
+      },
+    },
+    {
       id: "budget", label: "50/30/20 budget",
       title: "Split your take-home pay",
       question: "Needs, wants, and savings, and what the savings grow into.",
