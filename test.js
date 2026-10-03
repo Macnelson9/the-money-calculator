@@ -1,4 +1,4 @@
-// Checks the calculators reproduce the numbers used in the week 1 scripts.
+// Checks the calculators reproduce the numbers used in the week 1 and week 2 scripts.
 // Run: node test.js
 const MC = require("./calc.js");
 const r = Math.round;
@@ -47,8 +47,56 @@ check("max car 60k", MC.maxCar(60000, .075, 150).price, 18094);
 check("max car 40k", MC.maxCar(40000, .075, 150).price, 9478);
 // Saturday
 check("1% fee gap", MC.fv(500, .07, 30) - MC.fv(500, .06, 30), 107728);
+const loan = MC.loanPayoff(25000, .055, 10, 200);
+check("loan payment", loan.payment, 271); check("loan interest", loan.plain.interest, 7558);
+check("loan +200 months", loan.faster.months, 61, 0); check("loan +200 interest", loan.faster.interest, 3709);
+const fee = MC.feeDrag(500, 30, .07, .01);
+check("fee no-fee", fee.noFee, 609985); check("fee with", fee.withFee, 502258);
+check("raise take-home", MC.bracketTax(41000, 40000, .1, .2).takeHome - MC.bracketTax(39000, 40000, .1, .2).takeHome, 1700);
 // Sunday
 const b = MC.budget(4000, .5, .3, .2, .07);
 check("save 10y", b.in10, 138468); check("save 30y", b.in30, 975977);
+// ---- Week 2 ----
+// Mon: tax now vs later
+const tt = MC.taxTiming(300, .07, 30, .25, .15);
+check("tax gross", tt.gross, 365991); check("tax now", tt.now, 274493); check("tax later 15%", tt.later, 311093);
+check("no tax break", tt.noBreak, 245469); check("tax later 35%", MC.taxTiming(300, .07, 30, .25, .35).later, 237894);
+check("break-even equal", MC.taxTiming(300, .07, 30, .25, .25).later - tt.now, 0);
+check("tax gap @5%", MC.taxTiming(300, .05, 30, .25, .15).later - MC.taxTiming(300, .05, 30, .25, .15).now, 24968);
+// Tue: backtest (S&P 500 total return, Damodaran Jan 2026)
+const bt = MC.backtest(100, 2000, 2025);
+check("bt final", bt.final, 170971); check("bt put in", bt.contributed, 31200, 0); check("bt loss years", bt.lossYears, 6, 0);
+check("bt end 2008", bt.points[8].balance, 8944); check("bt 2000-2009", MC.backtest(100, 2000, 2009).final, 12627);
+check("bt 2009-2025", MC.backtest(100, 2009, 2025).final, 79374); check("bt 1% fee", MC.backtest(100, 2000, 2025, .01).final, 146756);
+// Wed: withdrawals, 6% return, 3% inflation
+check("wd 3% lasts 60+", MC.withdrawal(1e6, .03, .06, .03).lasts ? 1 : 0, 1, 0);
+check("wd 4% years", MC.withdrawal(1e6, .04, .06, .03).years, 42, 0); check("wd 5% years", MC.withdrawal(1e6, .05, .06, .03).years, 29, 0);
+check("wd 4% @5% ret", MC.withdrawal(1e6, .04, .05, .03).years, 33, 0); check("wd 5% @5% ret", MC.withdrawal(1e6, .05, .05, .03).years, 24, 0);
+check("wd 3% @5% ret", MC.withdrawal(1e6, .03, .05, .03).years, 52, 0);
+// Thu: degree ROI
+const deg = o => MC.degreeROI({ tuition: 40000, studyYears: 2, salary: 50000, kept: 0, bump: .2, growth: .03, tax: .25, careerYears: 30, discount: .05, ...o });
+check("deg cost", deg({}).cost, 116125); check("deg extra y1", deg({}).extraYear1, 7957); check("deg payback", deg({}).payback, 13, 0);
+check("deg npv", deg({}).npv, 50255); check("deg 10% payback", deg({ bump: .1 }).payback, 22, 0); check("deg 10% npv", deg({ bump: .1 }).npv, -28841);
+check("deg 40% payback", deg({ bump: .4 }).payback, 7, 0); check("deg part-time payback", deg({ kept: 1 }).payback, 5, 0);
+check("deg part-time npv", deg({ kept: 1 }).npv, 121004);
+// Fri: inflation
+check("inf 3%", MC.purchasingPower(10000, .03, 10).value, 7441); check("inf 8%", MC.purchasingPower(10000, .08, 10).value, 4632);
+check("inf 20%", MC.purchasingPower(10000, .2, 10).value, 1615); check("half 20%", MC.purchasingPower(1, .2, 1).halfLife * 10, 38);
+check("half 8%", MC.purchasingPower(1, .08, 1).halfLife * 10, 90); check("half 3%", MC.purchasingPower(1, .03, 1).halfLife * 10, 234);
+check("inf 8% w/5%", MC.purchasingPower(10000, .08, 10, .05).value, 7545);
+// Sat: savings goal, doubling, card
+check("goal monthly", MC.savingsGoal(20000, 3, .05).monthly, 516); check("goal 0%", MC.savingsGoal(20000, 3, 0).monthly, 556);
+check("goal interest", MC.savingsGoal(20000, 3, .05).interest, 1421); check("goal w/5k", MC.savingsGoal(20000, 3, .05, 5000).monthly, 366);
+check("double 7% x10", MC.savingsGoal(1, 1, .07).doubling * 10, 99); check("rule72 7% x10", MC.savingsGoal(1, 1, .07).rule72 * 10, 103);
+const c200 = MC.cardPayoff(5000, .2, "fixed", 200), c300 = MC.cardPayoff(5000, .2, "fixed", 300);
+check("card 200 months", c200.months, 33, 0); check("card 200 interest", c200.interest, 1522);
+check("card 300 months", c300.months, 20, 0); check("card 300 interest", c300.interest, 907);
+const cmin = MC.cardPayoff(5000, .2, "min"); check("card 5k min months", cmin.months, 226, 0); check("card 5k min interest", cmin.interest, 7317);
+// Sun: pet (ASPCA 2021 dog; Money.com/Healthy Paws 2026 average)
+const pet = o => MC.petCost({ upfront: 1830, yearly: 1391, years: 12, rise: 0, ret: .07, ...o });
+check("pet lifetime", pet({}).lifetime, 18522); check("pet per month", pet({}).perMonth, 129); check("pet invested", pet({}).invested, 30275);
+check("pet 3% rise", pet({ rise: .03 }).lifetime, 21571); check("pet 4272", pet({ yearly: 4272 }).lifetime, 53094);
+check("pet 4272 invested", pet({ yearly: 4272 }).invested, 84220); check("pet 4272 /mo", pet({ yearly: 4272 }).perMonth, 369);
+check("cat lifetime", pet({ upfront: 755, yearly: 1149 }).lifetime, 14543);
 console.log(failed ? `${failed} FAILED` : "all checks passed");
 process.exit(failed ? 1 : 0);

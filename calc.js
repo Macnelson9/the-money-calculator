@@ -188,7 +188,107 @@
     return { tax, takeHome: income - tax };
   }
 
-  const api = { fv, pmt, pv, growth, catchUp, cardPayoff, rentVsBuy, debtVsInvest, payoffPlan, firstTenK, carCost, maxCar, budget, loanPayoff, feeDrag, bracketTax };
+  // ---- Week 2 ----
+
+  // Tax now vs tax later on the same pre-tax monthly amount. "Now": pay tax
+  // today, growth is tax-free later. "Later": invest it all, pay tax on
+  // everything when you take it out. "No break": tax now AND tax on the gains.
+  function taxTiming(monthly, rate, years, taxNow, taxLater) {
+    const gross = fv(monthly, rate, years), put = monthly * 12 * years;
+    return {
+      gross, contributed: put,
+      now: gross * (1 - taxNow), later: gross * (1 - taxLater),
+      noBreak: put * (1 - taxNow) + (gross - put) * (1 - taxNow) * (1 - taxLater),
+    };
+  }
+
+  // S&P 500 total return incl. dividends, calendar years. Source: Aswath
+  // Damodaran, NYU Stern, "Historical Returns on Stocks, Bonds and Bills",
+  // histretSP, data updated 2026-01-05. US index, US dollars, before fees.
+  const SP500 = { 2000: -.0903, 2001: -.1185, 2002: -.2197, 2003: .2836, 2004: .1074, 2005: .0483, 2006: .1561,
+    2007: .0548, 2008: -.3655, 2009: .2594, 2010: .1482, 2011: .0210, 2012: .1589, 2013: .3215, 2014: .1352,
+    2015: .0138, 2016: .1177, 2017: .2161, 2018: -.0423, 2019: .3121, 2020: .1802, 2021: .2847, 2022: -.1804,
+    2023: .2606, 2024: .2488, 2025: .1778 };
+
+  // Invest `monthly` at the start of every month from Jan `from` to Dec `to`.
+  // Each year's return is spread evenly over its 12 months (annual data only).
+  function backtest(monthly, from, to, fee = 0, returns = SP500) {
+    let bal = 0, put = 0, lossYears = 0;
+    const points = [];
+    for (let y = from; y <= to; y++) {
+      if (!(y in returns)) break;
+      const f = (1 + returns[y] - fee) ** (1 / 12);
+      const startBal = bal;
+      for (let m = 0; m < 12; m++) { bal = (bal + monthly) * f; put += monthly; }
+      if (bal < startBal + monthly * 12) lossYears++;
+      points.push({ year: y, balance: bal, contributed: put });
+    }
+    return { final: bal, contributed: put, lossYears, points };
+  }
+
+  // Withdraw rate x start in year 1, raised by inflation every year, taken at
+  // the start of each year; the rest grows at `ret`. Yearly steps.
+  function withdrawal(start, rate, ret, inflation, maxYears = 60) {
+    let bal = start, w = start * rate, years = maxYears, taken = 0;
+    const balances = [start];
+    for (let y = 1; y <= maxYears; y++) {
+      if (bal < w) { years = y - 1; taken += bal; bal = 0; balances.push(0); break; }
+      bal = (bal - w) * (1 + ret); taken += w; w *= 1 + inflation;
+      balances.push(bal);
+    }
+    return { years, lasts: balances[balances.length - 1] > 0, firstYear: start * rate, taken, balances };
+  }
+
+  // Degree ROI vs not studying. Study years: tuition plus the after-tax pay
+  // you give up. After: the after-tax extra pay from a salary `bump`.
+  // Both salaries grow at `growth`. Cash flows at year end.
+  function degreeROI(o) {
+    let cum = 0, npv = 0, payback = null, cost = 0;
+    const points = [];
+    for (let t = 1; t <= o.studyYears + o.careerYears; t++) {
+      const base = o.salary * (1 + o.growth) ** (t - 1);
+      let flow;
+      if (t <= o.studyYears) { flow = -o.tuition / o.studyYears - base * (1 - o.kept) * (1 - o.tax); cost -= flow; }
+      else flow = base * o.bump * (1 - o.tax);
+      cum += flow; npv += flow / (1 + o.discount) ** t;
+      points.push({ year: t, cum });
+      if (payback === null && t > o.studyYears && cum >= 0) payback = t - o.studyYears;
+    }
+    return { cost, extraYear1: o.salary * (1 + o.growth) ** o.studyYears * o.bump * (1 - o.tax), payback, net: cum, npv, points };
+  }
+
+  // What savings can buy after `years` of inflation, earning `interest`.
+  function purchasingPower(amount, inflation, years, interest = 0) {
+    const real = (1 + interest) / (1 + inflation) - 1;
+    const points = [];
+    for (let y = 0; y <= years; y++) points.push({ year: y, value: amount * (1 + real) ** y });
+    return { value: amount * (1 + real) ** years, nominal: amount * (1 + interest) ** years, real,
+      halfLife: real < 0 ? Math.log(0.5) / Math.log(1 + real) : Infinity, points };
+  }
+
+  // Monthly saving needed to reach `target` in `years`, counting what you have.
+  function savingsGoal(target, years, rate, saved = 0) {
+    const grownSaved = saved * (1 + rate / 12) ** (years * 12);
+    const monthly = Math.max(0, (target - grownSaved) / fv(1, rate, years));
+    return { monthly, put: monthly * 12 * years + saved, interest: target - monthly * 12 * years - saved,
+      doubling: rate > 0 ? Math.log(2) / (12 * Math.log(1 + rate / 12)) : Infinity, rule72: rate > 0 ? 72 / (rate * 100) : Infinity };
+  }
+
+  // Lifetime pet cost: one-time costs, then yearly costs rising by `rise`.
+  // "Invested instead": the same money invested monthly at `ret`.
+  function petCost(o) {
+    let total = o.upfront, inv = o.upfront, yearly = o.yearly;
+    const points = [{ year: 0, cost: total, invested: inv }];
+    for (let y = 1; y <= o.years; y++) {
+      for (let m = 0; m < 12; m++) inv = inv * (1 + o.ret / 12) + yearly / 12;
+      total += yearly; yearly *= 1 + o.rise;
+      points.push({ year: y, cost: total, invested: inv });
+    }
+    return { lifetime: total, perMonth: total / (o.years * 12), invested: inv, points };
+  }
+
+  const api = { fv, pmt, pv, growth, catchUp, cardPayoff, rentVsBuy, debtVsInvest, payoffPlan, firstTenK, carCost, maxCar, budget, loanPayoff, feeDrag, bracketTax,
+    taxTiming, SP500, backtest, withdrawal, degreeROI, purchasingPower, savingsGoal, petCost };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.MC = api;
 })(this);

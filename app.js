@@ -218,6 +218,156 @@
         };
       },
     },
+    {
+      id: "tax-timing", label: "Tax now or later",
+      title: "Pay tax now or later?",
+      question: "The same pre-tax money: pay tax today and grow it tax-free, or grow it all and pay tax when you take it out.",
+      inputs: [
+        ["monthly", "Pre-tax money per month ($)", 300], ["years", "Years invested", 30], ["rate", "Average yearly return (%)", 7],
+        ["now", "Your tax rate today (%)", 25], ["later", "Your tax rate when you withdraw (%)", 15],
+      ],
+      render(v) {
+        const t = MC.taxTiming(v.monthly, pct(v.rate), v.years, pct(v.now), pct(v.later));
+        const rates = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45];
+        const gap = t.later - t.now;
+        return {
+          answer: Math.abs(gap) < 0.5 ? `Same tax rate now and later: both end at ${money(t.now)}. That's the break-even.`
+            : gap > 0 ? `Paying tax later wins by ${money(gap)}, because your rate later (${v.later}%) is lower than today (${v.now}%).`
+            : `Paying tax now wins by ${money(-gap)}, because your rate later (${v.later}%) is higher than today (${v.now}%).`,
+          stats: [
+            { k: "Tax now, take out tax-free", v: money(t.now), cls: v.now <= v.later ? "grow" : "" },
+            { k: "Tax later, on everything", v: money(t.later), cls: v.later < v.now ? "grow" : "" },
+            { k: "No tax break at all", v: money(t.noBreak), cls: "cost" },
+            { k: "Break-even rate later", v: v.now + "%" },
+          ],
+          chart: { type: "bar", labels: rates.map(r => r + "%"), xTitle: "Tax rate when you withdraw",
+            sets: [["Tax later", rates.map(r => t.gross * (1 - r / 100)), "--grow"], [`Tax now at ${v.now}%`, rates.map(() => t.now), "--accent"]] },
+          note: "Both options start from the same pre-tax money. Names and rules for these accounts differ by country; this is the math only. 'No tax break' = taxed today and the gains taxed again later at your later rate.",
+        };
+      },
+    },
+    {
+      id: "backtest", label: "$100/month since 2000",
+      title: "What if you invested every month since 2000?",
+      question: "A fixed amount each month into the S&P 500 index, using its real yearly returns (dividends included).",
+      inputs: [["monthly", "Invest per month ($)", 100], ["from", "Start year (2000–2025)", 2000], ["to", "End year (2000–2025)", 2025], ["fee", "Yearly fee (%)", 0]],
+      render(v) {
+        const from = Math.min(2025, Math.max(2000, Math.round(v.from))), to = Math.min(2025, Math.max(from, Math.round(v.to)));
+        const b = MC.backtest(v.monthly, from, to, pct(v.fee));
+        return {
+          answer: `${money(v.monthly)} a month from January ${from} to December ${to}: ${money(b.contributed)} put in, ${money(b.final)} at the end.`,
+          stats: [
+            { k: `Value at end of ${to}`, v: money(b.final), cls: "grow" }, { k: "You put in", v: money(b.contributed) },
+            { k: "Growth", v: money(b.final - b.contributed), cls: b.final >= b.contributed ? "grow" : "cost" },
+            { k: "Years that ended in a loss", v: b.lossYears, cls: "cost" },
+          ],
+          chart: { labels: b.points.map(p => p.year), xTitle: "End of year", sets: [["Account value", b.points.map(p => p.balance), "--grow"], ["Money put in", b.points.map(p => p.contributed), "--muted"]] },
+          note: "Data: S&P 500 total return incl. dividends, from Aswath Damodaran (NYU Stern), updated Jan 2026. US index in US dollars, before taxes. Each year's return is spread evenly over its months, so the real month-to-month path was bumpier. Past returns don't predict future ones.",
+        };
+      },
+    },
+    {
+      id: "withdraw", label: "How long $1M lasts",
+      title: "How long will your savings last?",
+      question: "Take a percentage of the starting amount in year one, raise it with inflation every year, and see when it runs out.",
+      inputs: [["start", "Savings at retirement ($)", 1000000], ["rate", "Year-one withdrawal (% of savings)", 4], ["ret", "Average yearly return (%)", 6], ["infl", "Inflation (%/yr)", 3]],
+      render(v) {
+        const mine = MC.withdrawal(v.start, pct(v.rate), pct(v.ret), pct(v.infl));
+        const runs = [3, 4, 5].map(r => [r, MC.withdrawal(v.start, pct(r), pct(v.ret), pct(v.infl))]);
+        const len = 61;
+        return {
+          answer: mine.lasts ? `Taking ${v.rate}% (${money(mine.firstYear)} in year one), the money lasts 60+ years.`
+            : `Taking ${v.rate}% (${money(mine.firstYear)} in year one), the money runs out after ${mine.years} years.`,
+          stats: runs.map(([r, x]) => ({ k: `${r}% (${money(x.firstYear)}/yr) lasts`, v: x.lasts ? "60+ yrs" : `${x.years} yrs`, cls: r === 3 ? "grow" : r === 5 ? "cost" : "" })),
+          chart: { labels: [...Array(len).keys()], xTitle: "Years into retirement",
+            sets: runs.map(([r, x], i) => [`${r}% withdrawal`, [...Array(len).keys()].map(y => (y < x.balances.length ? x.balances[y] : 0) / (1 + pct(v.infl)) ** y), ["--grow", "--accent", "--cost"][i]]) },
+          note: "Chart in today's money (after inflation). Yearly steps: each year's withdrawal comes out first, the rest earns the average return. Real markets don't return the average every year, and a bad first few years shortens every line.",
+        };
+      },
+    },
+    {
+      id: "degree", label: "Master's degree ROI",
+      title: "Is a master's degree worth it?",
+      question: "Tuition and lost pay up front, then the extra after-tax pay for the rest of your career.",
+      inputs: [
+        ["tuition", "Total tuition ($)", 40000], ["study", "Years of study", 2], ["salary", "Salary without the degree ($/yr)", 50000],
+        ["kept", "Salary you keep while studying (%)", 0], ["bump", "Pay rise from the degree (%)", 20], ["growth", "Yearly pay growth (%)", 3],
+        ["tax", "Tax on the extra pay (%)", 25], ["career", "Working years after the degree", 30], ["disc", "What the money could earn instead (%)", 5],
+      ],
+      render(v) {
+        const d = MC.degreeROI({ tuition: v.tuition, studyYears: Math.max(0, Math.round(v.study)), salary: v.salary, kept: pct(v.kept), bump: pct(v.bump),
+          growth: pct(v.growth), tax: pct(v.tax), careerYears: Math.round(v.career), discount: pct(v.disc) });
+        return {
+          answer: d.payback ? `It pays for itself ${d.payback} years after you graduate. Worth ${money(d.npv)} in today's money over your career.`
+            : "With these numbers the degree never pays for itself.",
+          stats: [
+            { k: "Total cost (tuition + lost after-tax pay)", v: money(d.cost), cls: "cost" }, { k: "Extra after-tax pay, first year", v: money(d.extraYear1), cls: "grow" },
+            { k: "Years after graduating to pay back", v: d.payback || "never" }, { k: "Value in today's money", v: money(d.npv), cls: d.npv >= 0 ? "grow" : "cost" },
+          ],
+          chart: { labels: d.points.map(p => p.year), xTitle: "Years from starting the degree", sets: [["Running total: extra pay minus costs", d.points.map(p => p.cum), "--grow"]] },
+          note: "Salaries and the pay rise are examples; look up real figures for your field and country. 'Today's money' discounts future pay at the rate the money could earn instead.",
+        };
+      },
+    },
+    {
+      id: "inflation", label: "Inflation & savings",
+      title: "What will your savings really buy?",
+      question: "The same money, years from now, after prices rise.",
+      inputs: [["amount", "Savings today ($)", 10000], ["infl", "Inflation (%/yr)", 8], ["years", "Years", 10], ["interest", "Interest your savings earn (%/yr)", 0]],
+      render(v) {
+        const p = MC.purchasingPower(v.amount, pct(v.infl), v.years, pct(v.interest));
+        const lines = [3, 8, 20].map(r => MC.purchasingPower(v.amount, pct(r), v.years, pct(v.interest)));
+        return {
+          answer: p.real < 0 ? `After ${v.years} years, ${money(v.amount)} buys what ${money(p.value)} buys today.`
+            : `Earning ${v.interest}% beats ${v.infl}% inflation: ${money(v.amount)} buys what ${money(p.value)} buys today.`,
+          stats: [
+            { k: `Buying power after ${v.years} years`, v: money(p.value), cls: p.real < 0 ? "cost" : "grow" },
+            { k: "Balance you'd see", v: money(p.nominal) },
+            { k: "Real return per year", v: (p.real * 100).toFixed(1) + "%", cls: p.real < 0 ? "cost" : "grow" },
+            { k: "Years until it buys half", v: isFinite(p.halfLife) ? p.halfLife.toFixed(1) : "never" },
+          ],
+          chart: { labels: lines[0].points.map(x => x.year), xTitle: "Years", sets: [3, 8, 20].map((r, i) => [`${r}% inflation`, lines[i].points.map(x => x.value), ["--grow", "--accent", "--cost"][i]]) },
+          note: "Inflation rates here are examples. Your own country's rate, and your own basket of spending, can be very different.",
+        };
+      },
+    },
+    {
+      id: "goal", label: "Savings goal",
+      title: "How much to save each month?",
+      question: "A target, a deadline, and what your savings earn. Plus how long money takes to double.",
+      inputs: [["target", "Savings goal ($)", 20000], ["years", "Years to get there", 3], ["rate", "Yearly interest or return (%)", 5], ["saved", "Already saved ($)", 0]],
+      render(v) {
+        const g = MC.savingsGoal(v.target, v.years, pct(v.rate), v.saved);
+        return {
+          answer: `Save ${money(g.monthly)} a month to reach ${money(v.target)} in ${v.years} years.`,
+          stats: [
+            { k: "Save per month", v: money(g.monthly), cls: "grow" }, { k: "Interest does the rest", v: money(g.interest), cls: "grow" },
+            { k: `Years to double at ${v.rate}%`, v: isFinite(g.doubling) ? g.doubling.toFixed(1) : "never" },
+            { k: "Rule of 72 estimate", v: isFinite(g.rule72) ? g.rule72.toFixed(1) : "never" },
+          ],
+          chart: { type: "doughnut", labels: ["You put in", "Interest"], sets: [["$", [g.put, Math.max(0, g.interest)], ["--accent", "--grow"]]] },
+          note: "Monthly deposits, interest compounded monthly. Rule of 72: divide 72 by the rate to estimate the years to double.",
+        };
+      },
+    },
+    {
+      id: "pet", label: "Lifetime pet cost",
+      title: "What does a pet really cost?",
+      question: "One-time costs, then yearly costs over the pet's life, and what that money could have grown to.",
+      inputs: [["upfront", "First-year one-time costs ($)", 1830], ["yearly", "Yearly costs ($)", 1391], ["years", "Lifespan (years)", 12], ["rise", "Costs rise each year (%)", 0], ["ret", "Return if invested instead (%)", 7]],
+      render(v) {
+        const p = MC.petCost({ upfront: v.upfront, yearly: v.yearly, years: Math.round(v.years), rise: pct(v.rise), ret: pct(v.ret) });
+        return {
+          answer: `Over ${Math.round(v.years)} years this pet costs about ${money(p.lifetime)}, or ${money(p.perMonth)} a month.`,
+          stats: [
+            { k: "Lifetime cost", v: money(p.lifetime), cls: "cost" }, { k: "Average per month", v: money(p.perMonth) },
+            { k: "First year", v: money(v.upfront + v.yearly), cls: "cost" }, { k: `If invested at ${v.ret}% instead`, v: money(p.invested), cls: "grow" },
+          ],
+          chart: { labels: p.points.map(x => x.year), xTitle: "Years", sets: [["Total spent", p.points.map(x => x.cost), "--cost"], [`Same money invested at ${v.ret}%`, p.points.map(x => x.invested), "--grow"]] },
+          note: "Defaults: ASPCA 2021 estimates for a medium dog (one-time $1,030 + grooming and dental $800; yearly $1,391), US dollars. A 2026 Money.com / Healthy Paws survey put the average at $4,272 a year. Costs vary a lot by country, breed and health.",
+        };
+      },
+    },
   ];
 
   let chart = null;
