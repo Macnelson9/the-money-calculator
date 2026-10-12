@@ -4,6 +4,7 @@
   "use strict";
   const $ = s => document.querySelector(s);
   const money = x => !isFinite(x) ? "never" : (x < 0 ? "-$" : "$") + Math.round(Math.abs(x)).toLocaleString("en-US");
+  const num = x => Math.round(x).toLocaleString("en-US");
   const pct = x => x / 100;
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
@@ -368,6 +369,334 @@
         };
       },
     },
+    // ---- Week 3 ----
+    {
+      id: "emergency", label: "Emergency fund",
+      title: "How big should your emergency fund be?",
+      question: "Months of essential spending, how long it takes to build, what holding it in cash costs, and what an emergency costs without one.",
+      inputs: [
+        ["spend", "Essential spending ($/month)", 2000], ["months", "Months to cover", 6], ["saved", "Already saved ($)", 0],
+        ["monthly", "Saving per month ($)", 400], ["cash", "Interest on the cash (%)", 4], ["ret", "Return if invested instead (%)", 7],
+        ["shock", "Example emergency ($)", 3000], ["apr", "Card rate if no fund (%)", 24], ["pay", "Card payment ($/month)", 150],
+      ],
+      render(v) {
+        const e = MC.emergencyFund({ spend: v.spend, months: v.months, saved: v.saved, monthly: v.monthly, cashRate: pct(v.cash),
+          investReturn: pct(v.ret), shock: v.shock, apr: pct(v.apr), pay: v.pay });
+        return {
+          answer: `${v.months} months of ${money(v.spend)} is ${money(e.target)}. Saving ${money(v.monthly)} a month gets you there in ${isFinite(e.months) ? e.months + " months" : "never"}.`,
+          stats: [
+            { k: "Emergency fund target", v: money(e.target), cls: "grow" },
+            { k: "Months to build it", v: isFinite(e.months) ? e.months : "never" },
+            { k: "Yearly cost of holding cash", v: money(e.holdYear), cls: "cost" },
+            { k: `${money(v.shock)} on a card instead: interest`, v: isFinite(e.cardInterest) ? money(e.cardInterest) : "never paid off", cls: "cost" },
+          ],
+          chart: { type: "bar", labels: e.sizes.map(s => s.months + " months"), xTitle: "Months of essential spending",
+            sets: [["Fund size", e.sizes.map(s => s.target), "--grow"], ["Yearly cost of holding it in cash", e.sizes.map(s => s.holdYear), "--cost"]] },
+          note: `"Cost of holding cash" = the fund x (investment return minus cash interest), a yearly estimate; over 10 years the gap compounds to ${money(e.tenYear)}. Returns are assumptions. The card example is paid off at ${money(v.pay)} a month (${isFinite(e.cardMonths) ? e.cardMonths + " months" : "never"}).`,
+        };
+      },
+    },
+    {
+      id: "side-hustle", label: "Side hustle $500",
+      title: "Extra income: spend it, pay debt, or invest?",
+      question: "The same extra money every month, three ways. Net worth = investments minus any debt left.",
+      inputs: [
+        ["side", "Extra income after tax and costs ($/month)", 500], ["years", "Years", 5], ["ret", "Investment return (%)", 7],
+        ["debt", "Debt balance ($)", 6000], ["apr", "Debt interest rate (%)", 24], ["payment", "Regular debt payment ($/month)", 200],
+      ],
+      render(v) {
+        const s = MC.sideHustle({ side: v.side, years: Math.round(v.years), ret: pct(v.ret), debt: v.debt, apr: pct(v.apr), payment: v.payment });
+        const best = s.debt.net >= s.invest.net ? "Debt first, then invest" : "Investing straight away";
+        return {
+          answer: Math.abs(s.debt.net - s.invest.net) < 1 ? `With no debt, every dollar is invested: ${money(s.invest.net)} after ${Math.round(v.years)} years.`
+            : `${best} ends ahead by ${money(Math.abs(s.debt.net - s.invest.net))} after ${Math.round(v.years)} years.`,
+          stats: [
+            { k: "Spend it: net worth", v: money(s.spend.net), cls: "cost" },
+            { k: "Debt first, then invest", v: money(s.debt.net), cls: s.debt.net >= s.invest.net ? "grow" : "" },
+            { k: "Invest it, debt paid slowly", v: money(s.invest.net), cls: s.invest.net > s.debt.net ? "grow" : "" },
+            { k: "Interest paid, debt first", v: money(s.debt.interest), cls: "grow" },
+          ],
+          chart: { labels: s.debt.points.map(p => p.year), xTitle: "Years",
+            sets: [["Debt first, then invest", s.debt.points.map(p => p.net), "--grow"], ["Invest it", s.invest.points.map(p => p.net), "--accent"], ["Spend it", s.spend.points.map(p => p.net), "--cost"]] },
+          note: `You earn ${money(s.earned)} extra in total. Interest paid: ${money(s.debt.interest)} debt first, ${money(s.invest.interest)} with the regular payment only. Debt-free in month ${s.debt.free ?? "never"} (debt first) vs ${s.invest.free ?? "never"} (regular payment only). Once the debt is gone, its regular payment is invested in every path. Returns are assumptions.`,
+        };
+      },
+    },
+    {
+      id: "instalments", label: "Pay later vs cash",
+      title: "Pay in instalments or pay cash?",
+      question: "The true cost of a phone or laptop on an instalment plan, and how long saving up first would take.",
+      inputs: [
+        ["price", "Price ($)", 1200], ["months", "Months to pay", 24], ["apr", "Interest rate (%)", 25],
+        ["fee", "Setup or account fees ($)", 0], ["late", "Missed payments", 0], ["lateFee", "Late fee each ($)", 0], ["save", "Interest if you save up first (%)", 0],
+      ],
+      render(v) {
+        const i = MC.instalment({ price: v.price, months: Math.max(1, Math.round(v.months)), apr: pct(v.apr), fee: v.fee, late: v.late, lateFee: v.lateFee, saveRate: pct(v.save) });
+        const aprs = [0, 10, 15, 20, 25, 30, 36];
+        return {
+          answer: `On the plan, the ${money(v.price)} item costs ${money(i.total)}: ${money(i.extra)} more than cash (${(i.extraPct * 100).toFixed(1)}%).`,
+          stats: [
+            { k: "Monthly payment", v: money(i.payment) }, { k: "Total you pay", v: money(i.total), cls: "cost" },
+            { k: "Extra over the cash price", v: money(i.extra), cls: "cost" }, { k: "Months to save it up first", v: i.saveMonths, cls: "grow" },
+          ],
+          chart: { type: "bar", labels: aprs.map(a => a + "%"), xTitle: `Interest rate, ${Math.round(v.months)} months`,
+            sets: [["Total paid on the plan", aprs.map(a => i.byApr(pct(a))), "--cost"], ["Cash price", aprs.map(() => v.price), "--grow"]] },
+          note: "Example terms, not any provider's. 0% plans cost nothing extra only if every payment is on time; check each plan's own fees and what a missed payment costs. 'Save up first' puts the same monthly payment aside until you have the price.",
+        };
+      },
+    },
+    {
+      id: "creep", label: "Lifestyle creep",
+      title: "Spend every raise, or save half?",
+      question: "Take-home pay rises every year. One person spends each raise; the other saves half of every increase.",
+      inputs: [
+        ["pay", "Take-home pay now ($/month)", 3000], ["raise", "Yearly raise (%)", 5], ["years", "Years", 10],
+        ["save", "Saving now ($/month)", 300], ["share", "Share of each raise saved (%)", 50], ["ret", "Investment return (%)", 7],
+      ],
+      render(v) {
+        const c = MC.lifestyleCreep({ pay: v.pay, raise: pct(v.raise), years: Math.max(1, Math.round(v.years)), save: v.save, share: pct(v.share), ret: pct(v.ret) });
+        return {
+          answer: `Saving ${v.share}% of every raise ends ${money(c.gap)} ahead after ${Math.round(v.years)} years.`,
+          stats: [
+            { k: "Spend every raise", v: money(c.a) }, { k: `Save ${v.share}% of each raise`, v: money(c.b), cls: "grow" },
+            { k: "Final-year spending, spend every raise", v: money(c.spendA) + "/mo" },
+            { k: `Final-year spending, save ${v.share}%`, v: money(c.spendB) + "/mo" },
+          ],
+          chart: { labels: c.points.map(p => p.year), xTitle: "Years", sets: [[`Save ${v.share}% of each raise`, c.points.map(p => p.b), "--grow"], ["Spend every raise", c.points.map(p => p.a), "--accent"]] },
+          note: `Final year: take-home ${money(c.lastPay)} a month; saving ${money(v.save)} (spend every raise) vs ${money(c.saveB)} (save ${v.share}%). Raises arrive once a year; savings invested monthly. Returns and raises are examples.`,
+        };
+      },
+    },
+    {
+      id: "buffer", label: "Irregular income",
+      title: "Pay yourself a steady salary",
+      question: "Irregular income goes into a buffer account (after setting tax aside); you pay yourself the same amount every month.",
+      inputs: [
+        ["avg", "Average monthly income ($)", 3000], ["swing", "How much months swing (%)", 100], ["tax", "Set aside for tax (%)", 20],
+        ["salary", "Salary you pay yourself ($/month)", 2200], ["start", "Buffer at the start ($)", 0], ["months", "Months shown", 12],
+      ],
+      render(v) {
+        const b = MC.incomeBuffer({ avg: v.avg, swing: pct(v.swing), tax: pct(v.tax), salary: v.salary, start: v.start, months: Math.max(1, Math.round(v.months)) });
+        return {
+          answer: b.short ? `The buffer runs short in ${b.short} of ${Math.round(v.months)} months. Start with ${money(b.need)} to never run short.`
+            : `The buffer never runs short. It ends at ${money(b.end)}.`,
+          stats: [
+            { k: "Most you can pay yourself on average", v: money(b.steady), cls: "grow" },
+            { k: "Starting buffer needed", v: money(b.need) },
+            { k: "Lowest buffer balance", v: money(b.low), cls: b.low < 0 ? "cost" : "grow" },
+            { k: "Months income is below salary", v: b.below },
+          ],
+          chart: { labels: b.points.map(p => p.month), xTitle: "Month",
+            sets: [["Income after tax set-aside", b.points.map(p => p.net), "--accent"], ["Buffer balance", b.points.map(p => p.balance), "--grow"], ["Your salary", b.points.map(() => v.salary), "--cost"]] },
+          note: "Example income pattern: 12 months that average exactly your average income, repeated each year. Tax set-aside is an example rate; real tax depends on your country.",
+        };
+      },
+    },
+    {
+      id: "currency", label: "Weak vs steady currency",
+      title: "Saving in a currency that keeps losing value",
+      question: "Keep savings in Currency A, which loses value against Currency B each year, or convert and keep them in B. Values in units of B.",
+      inputs: [
+        ["amount", "Savings today (units of B)", 10000], ["years", "Years", 5], ["dep", "A loses vs B each year (%)", 20],
+        ["arate", "Interest earned in A (%)", 10], ["brate", "Interest earned in B (%)", 3], ["cost", "Cost to convert, each way (%)", 2],
+      ],
+      render(v) {
+        const c = MC.currencySavings({ amount: v.amount, years: Math.max(0, Math.round(v.years)), dep: pct(v.dep), aRate: pct(v.arate), bRate: pct(v.brate), cost: pct(v.cost) });
+        return {
+          answer: `After ${Math.round(v.years)} years: ${num(c.a)} units of B kept in A, ${num(c.b)} kept in B. A needs ${(c.breakEven * 100).toFixed(1)}% interest to keep up.`,
+          stats: [
+            { k: "Kept in A (in units of B)", v: num(c.a), cls: c.a < c.b ? "cost" : "grow" },
+            { k: "Converted to B and back", v: num(c.b), cls: c.b <= c.a ? "cost" : "grow" },
+            { k: "A's real change per year", v: (c.real * 100).toFixed(1) + "%", cls: c.real < 0 ? "cost" : "grow" },
+            { k: "Interest A needs to keep up with B", v: (c.breakEven * 100).toFixed(1) + "%" },
+          ],
+          chart: { fmt: "num", labels: c.points.map(p => p.year), xTitle: "Years", sets: [["Kept in A", c.points.map(p => p.a), "--cost"], ["Kept in B", c.points.map(p => p.b), "--grow"]] },
+          note: "Example rates only, not real currencies or forecasts. Exchange rates can move either way and are not predictable. Rules on holding foreign currency differ by country. What your savings buy also depends on local prices, not just exchange rates.",
+        };
+      },
+    },
+    {
+      id: "wedding", label: "Wedding cost",
+      title: "A big wedding vs investing the difference",
+      question: "A bigger and a smaller wedding: what the difference could grow to, and what borrowing part of it adds.",
+      inputs: [
+        ["big", "Bigger wedding ($)", 34000], ["small", "Smaller wedding ($)", 8000], ["years", "Years invested", 10], ["ret", "Investment return (%)", 7],
+        ["borrowed", "Part of the bigger one borrowed ($)", 0], ["apr", "Loan rate (%)", 15], ["loanMonths", "Loan length (months)", 36],
+      ],
+      render(v) {
+        const w = MC.weddingCost({ big: v.big, small: v.small, years: Math.max(0, Math.round(v.years)), ret: pct(v.ret), borrowed: v.borrowed, apr: pct(v.apr), loanMonths: Math.max(1, Math.round(v.loanMonths)) });
+        return {
+          answer: `The ${money(w.diff)} difference, invested, could grow to about ${money(w.invested)} in ${Math.round(v.years)} years.`,
+          stats: [
+            { k: "Difference", v: money(w.diff) }, { k: `Invested for ${Math.round(v.years)} years`, v: money(w.invested), cls: "grow" },
+            { k: "Interest on the borrowed part", v: money(w.interest), cls: "cost" }, { k: "Bigger wedding incl. interest", v: money(w.trueCost), cls: "cost" },
+          ],
+          chart: { labels: w.points.map(p => p.year), xTitle: "Years", sets: [["The difference, invested", w.points.map(p => p.value), "--grow"]] },
+          note: (v.borrowed > 0 ? `Loan payment: ${money(w.loanPay)} a month for ${Math.round(v.loanMonths)} months. ` : "") + "Default bigger wedding: $34,000, the average US wedding cost in 2025 (The Knot 2026 Real Weddings Study, 10,474 US couples, published Feb 2026). The smaller one is an example. Costs vary hugely by country. Loan payments the smaller wedding avoids are invested too. Returns are assumptions.",
+        };
+      },
+    },
+    {
+      id: "rent", label: "Rent on your pay",
+      title: "How much rent can you afford?",
+      question: "Rent as a share of take-home pay, and what's left to save after everything else you spend.",
+      inputs: [
+        ["pay", "Take-home pay ($/month)", 3000], ["share", "Rent as a share of pay (%)", 30], ["other", "Everything else you spend ($/month)", 1500],
+        ["target", "Saving goal (% of pay)", 20], ["years", "Years the saving is invested", 5], ["ret", "Investment return (%)", 7],
+      ],
+      render(v) {
+        const a = MC.rentAfford({ pay: v.pay, share: pct(v.share), other: v.other, target: pct(v.target), years: Math.max(0, Math.round(v.years)), ret: pct(v.ret) });
+        return {
+          answer: a.left >= 0 ? `Rent of ${money(a.rent)} leaves ${money(a.left)} a month to save: ${Math.round(a.rate * 100)}% of your pay.`
+            : `Rent of ${money(a.rent)} plus your other spending is ${money(-a.left)} a month more than you take home.`,
+          stats: [
+            { k: `Rent at ${v.share}% of pay`, v: money(a.rent) + "/mo" },
+            { k: "Left to save each month", v: money(a.left), cls: a.left > 0 ? "grow" : "cost" },
+            { k: `Most rent that saves ${v.target}%`, v: money(Math.max(0, a.maxRent)) + "/mo" },
+            { k: `That saving, invested ${Math.round(v.years)} years`, v: money(a.invested), cls: "grow" },
+          ],
+          chart: { type: "bar", labels: a.shares.map(s => Math.round(s.share * 100) + "% of pay"), xTitle: "Rent as a share of take-home pay",
+            sets: [["Rent", a.shares.map(s => s.rent), "--cost"], ["Left to save", a.shares.map(s => Math.max(0, s.left)), "--grow"]] },
+          note: "The 30% figure is a common rule of thumb, often quoted on pay before tax; this calculator uses take-home pay. 'Everything else' is all your other spending: food, transport, bills, fun. Returns are assumptions.",
+        };
+      },
+    },
+    {
+      id: "fire", label: "FIRE number",
+      title: "Your FIRE number: how much to stop working?",
+      question: "Yearly spending divided by a withdrawal rate, and how long it takes at different saving rates. In today's money.",
+      inputs: [
+        ["pay", "Take-home pay ($/month)", 4000], ["rate", "Saving rate (% of pay)", 25], ["saved", "Already invested ($)", 0],
+        ["ret", "Return after inflation (%)", 5], ["wr", "Withdrawal rate (%)", 4],
+      ],
+      render(v) {
+        const f = MC.fireNumber({ pay: v.pay, rate: pct(v.rate), saved: v.saved, ret: pct(v.ret), wr: pct(v.wr) });
+        const ym = m => !isFinite(m) ? "100+ yrs" : `${Math.floor(m / 12)} yrs ${m % 12} mo`;
+        return {
+          answer: `Spending ${money(f.spend)} a month, your FIRE number is ${money(f.target)}. Saving ${v.rate}%, you reach it in ${ym(f.months)}.`,
+          stats: [
+            { k: "FIRE number", v: money(f.target), cls: "grow" }, { k: "You save each month", v: money(f.save) },
+            { k: "You spend each month", v: money(f.spend) }, { k: "Time to reach it", v: ym(f.months), cls: "grow" },
+          ],
+          chart: { type: "bar", fmt: "num", labels: f.byRate.map(x => Math.round(x.rate * 100) + "%"), xTitle: "Saving rate (share of take-home pay)",
+            sets: [["Years to reach your FIRE number", f.byRate.map(x => isFinite(x.years) ? Math.round(x.years * 10) / 10 : null), "--accent"]] },
+          note: `FIRE number = yearly spending x ${Math.round(f.multiple * 10) / 10} (a ${v.wr}% withdrawal rate, a common rule of thumb, not a guarantee). Return is after inflation, so all amounts are in today's money. Saving more means both more saved and less to replace. Returns are assumptions.`,
+        };
+      },
+    },
+    {
+      id: "habit", label: "Daily habit cost",
+      title: "What does a small daily habit cost over the years?",
+      question: "The same daily amount, spent vs invested every month.",
+      inputs: [
+        ["daily", "Daily cost ($)", 8], ["days", "Days a week", 7], ["years", "Years", 20], ["ret", "Investment return (%)", 7], ["rise", "Price rise per year (%)", 0],
+      ],
+      render(v) {
+        const h = MC.dailyHabit({ daily: v.daily, days: v.days, years: Math.max(0, Math.round(v.years)), ret: pct(v.ret), rise: pct(v.rise) });
+        return {
+          answer: `${money(v.daily)} a day for ${Math.round(v.years)} years: ${money(h.spent)} spent, or about ${money(h.invested)} if invested.`,
+          stats: [
+            { k: "Cost in the first year", v: money(h.perYear) }, { k: `Spent over ${Math.round(v.years)} years`, v: money(h.spent), cls: "cost" },
+            { k: "Same money, invested", v: money(h.invested), cls: "grow" }, { k: "Growth on top", v: money(h.growth), cls: "grow" },
+          ],
+          chart: { labels: h.points.map(p => p.year), xTitle: "Years", sets: [["Invested", h.points.map(p => p.invested), "--grow"], ["Spent", h.points.map(p => p.spent), "--cost"]] },
+          note: "Invested monthly (the daily amount x days a week x 365 / 7, split into 12 months). Returns are assumptions; prices and returns are examples.",
+        };
+      },
+    },
+    {
+      id: "education", label: "Child's education",
+      title: "Saving for a child's education",
+      question: "The monthly saving needed to reach the same goal, starting at birth vs starting later.",
+      inputs: [
+        ["target", "Goal at the age needed ($)", 50000], ["startA", "Start saving at age (early)", 0], ["startB", "Start saving at age (later)", 8],
+        ["end", "Age the money is needed", 18], ["ret", "Investment return (%)", 6],
+      ],
+      render(v) {
+        const e = MC.educationFund({ target: v.target, startA: Math.round(v.startA), startB: Math.round(v.startB), endAge: Math.round(v.end), ret: pct(v.ret) });
+        return {
+          answer: `Starting at age ${Math.round(v.startA)} takes ${money(e.a.monthly)} a month; waiting until ${Math.round(v.startB)} takes ${money(e.b.monthly)}.`,
+          stats: [
+            { k: `Monthly from age ${Math.round(v.startA)}`, v: money(e.a.monthly), cls: "grow" }, { k: `Monthly from age ${Math.round(v.startB)}`, v: money(e.b.monthly), cls: "cost" },
+            { k: `You put in, from age ${Math.round(v.startA)}`, v: money(e.a.put) }, { k: `You put in, from age ${Math.round(v.startB)}`, v: money(e.b.put) },
+          ],
+          chart: { labels: e.a.points.map(p => p.age), xTitle: "Child's age", sets: [[`Start at ${Math.round(v.startA)}`, e.a.points.map(p => p.balance), "--grow"], [`Start at ${Math.round(v.startB)}`, e.b.points.map(p => p.balance), "--accent"]] },
+          note: `Growth does the rest: ${money(e.a.growth)} starting at ${Math.round(v.startA)} vs ${money(e.b.growth)} at ${Math.round(v.startB)}. Starting at ${Math.round(v.startB)} with only ${money(e.a.monthly)} a month reaches ${money(e.lateWithEarly)}. The goal is an example in future money; real costs depend on the country and the course. Returns are assumptions.`,
+        };
+      },
+    },
+    {
+      id: "break-even", label: "Business break-even",
+      title: "Starting a small business: when do you break even?",
+      question: "Each sale earns its price minus its cost. How many sales a month cover your fixed costs?",
+      inputs: [
+        ["fixed", "Fixed costs ($/month)", 2000], ["price", "Price per sale ($)", 25], ["unit", "Cost per sale ($)", 10],
+        ["sales", "Expected sales a month", 200], ["startup", "One-off start-up cost ($)", 5000],
+      ],
+      render(v) {
+        const b = MC.breakEven({ fixed: v.fixed, price: v.price, unit: v.unit, sales: Math.round(v.sales), startup: v.startup });
+        const top = Math.max(Math.round(v.sales), isFinite(b.units) ? b.units : 0) * 1.5 || 10, step = Math.max(1, Math.round(top / 10));
+        const ns = [...Array(11).keys()].map(i => i * step);
+        return {
+          answer: isFinite(b.units) ? `You break even at ${b.units} sales a month. At ${Math.round(v.sales)} sales, you ${b.profit >= 0 ? "make" : "lose"} ${money(Math.abs(b.profit))} a month.`
+            : "Each sale costs more than its price, so more sales never break even. Raise the price or cut the cost per sale.",
+          stats: [
+            { k: "Earned per sale", v: money(b.margin) }, { k: "Sales a month to break even", v: isFinite(b.units) ? num(b.units) : "never", cls: "grow" },
+            { k: `Profit at ${Math.round(v.sales)} sales`, v: money(b.profit), cls: b.profit >= 0 ? "grow" : "cost" },
+            { k: "Months to earn back start-up", v: isFinite(b.payback) ? b.payback : "never" },
+          ],
+          chart: { labels: ns, xTitle: "Sales a month", sets: [["Money in (sales)", ns.map(n => b.line(n).revenue), "--grow"], ["Costs (fixed + per sale)", ns.map(n => b.line(n).cost), "--cost"]] },
+          note: "Fixed costs: rent, subscriptions, your own pay, anything you pay whether you sell or not. Cost per sale: materials, packaging, delivery, payment fees. Profit before tax. All numbers are examples.",
+        };
+      },
+    },
+    {
+      id: "holiday", label: "Holiday on a card",
+      title: "Holiday shopping on a credit card",
+      question: "December spending on a card: pay the minimum, a fixed amount, or clear it in a few months?",
+      inputs: [
+        ["spend", "Holiday spending on the card ($)", 1500], ["apr", "Card interest rate APR (%)", 24], ["fixed", "Fixed payment ($/month)", 150], ["clear", "Or clear it in (months)", 3],
+      ],
+      render(v) {
+        const h = MC.holidayCard({ spend: v.spend, apr: pct(v.apr), fixed: v.fixed, clearMonths: Math.max(1, Math.round(v.clear)) });
+        const yrs = m => !isFinite(m) ? "never" : `${m} months (${(m / 12).toFixed(1)} yrs)`;
+        const n = Math.max(h.min.balances.length, h.fixed.balances.length);
+        return {
+          answer: `Paying the minimum, ${money(v.spend)} takes ${yrs(h.min.months)} and costs ${money(h.min.interest)} in interest.`,
+          stats: [
+            { k: "First minimum payment", v: money(h.firstMin) }, { k: "Minimum only: interest", v: money(h.min.interest), cls: "cost" },
+            { k: `${money(v.fixed)}/mo: interest`, v: isFinite(h.fixed.interest) ? money(h.fixed.interest) : "never", cls: "grow" },
+            { k: `Clear in ${Math.round(v.clear)} months: interest`, v: money(h.clearInterest), cls: "grow" },
+          ],
+          chart: { labels: [...Array(n).keys()], xTitle: "Month", sets: [["Minimum payment (interest + 1%)", h.min.balances, "--cost"], [`Fixed ${money(v.fixed)}`, h.fixed.balances, "--grow"]] },
+          note: `Minimum = interest + 1% of the balance, at least $25, a common formula; check your card's own. Total paid on the minimum: ${money(h.minTotal)}. ${isFinite(h.fixed.months) ? `${money(v.fixed)} a month clears it in ${h.fixed.months} months. ` : ""}Clearing it in ${Math.round(v.clear)} months takes ${money(h.clearPay)} a month. Saving ${money(h.saveMonthly)} a month from January covers it next year with no interest. For scale: US shoppers planned to spend $890.49 each on average on the 2025 winter holidays (NRF holiday survey by Prosper Insights & Analytics, published Oct 16, 2025). The $1,500 default is an example.`,
+        };
+      },
+    },
+    {
+      id: "real-wage", label: "Real hourly wage",
+      title: "Your real hourly wage",
+      question: "Pay per hour on paper vs after work costs, counting your commute and other unpaid work time.",
+      inputs: [
+        ["pay", "Take-home pay ($/month)", 3000], ["hours", "Paid hours a week", 40], ["weeks", "Weeks worked a year", 48],
+        ["commute", "Commute, there and back (hours/day)", 1.5], ["days", "Days you commute a week", 5], ["extra", "Other unpaid work time (hours/week)", 2.5],
+        ["costs", "Work costs: travel, lunches, clothes ($/month)", 300],
+      ],
+      render(v) {
+        const w = MC.realWage({ pay: v.pay, hours: v.hours, weeks: v.weeks, commute: v.commute, days: v.days, extra: v.extra, costs: v.costs });
+        const dp = x => (x < 0 ? "-$" : "$") + Math.abs(x).toFixed(2);
+        return {
+          answer: `On paper you earn ${dp(w.paper)} an hour. Counting work time and costs, it's ${dp(w.real)}: ${Math.round(w.drop * 100)}% less.`,
+          stats: [
+            { k: "Hourly pay on paper", v: dp(w.paper) }, { k: "Real hourly wage", v: dp(w.real), cls: "cost" },
+            { k: "Commute hours a year", v: num(w.commuteHours) }, { k: "Work costs a year", v: money(w.costsYear), cls: "cost" },
+          ],
+          chart: { type: "bar", labels: ["Hours a year"], xTitle: "", fmt: "num",
+            sets: [["Paid hours", [w.paidHours], "--grow"], ["Commute", [w.commuteHours], "--cost"], ["Other unpaid work time", [w.extraHours - w.commuteHours], "--accent"]] },
+          note: `A $5 purchase costs ${Math.round(w.minutes(5))} minutes of real work. Uses take-home pay. Commute = hours there and back x days a week x weeks worked. All inputs are examples.`,
+        };
+      },
+    },
   ];
 
   let chart = null;
@@ -405,6 +734,7 @@
     if (chart) { chart.destroy(); chart = null; }
     if (!r.chart || typeof Chart === "undefined") return;
     const type = r.chart.type || "line";
+    const fmt = r.chart.fmt === "num" ? num : money;
     const color = c => Array.isArray(c) ? c.map(css) : css(c);
     chart = new Chart(out.querySelector("canvas"), {
       type,
@@ -417,10 +747,10 @@
       options: {
         responsive: true, maintainAspectRatio: false, animation: { duration: 600 },
         plugins: { legend: { labels: { color: css("--text") } },
-          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${money(ctx.parsed.y ?? ctx.parsed)}` } } },
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.parsed.y ?? ctx.parsed)}` } } },
         scales: type === "doughnut" ? {} : {
           x: { title: { display: !!r.chart.xTitle, text: r.chart.xTitle || "", color: css("--muted") }, ticks: { color: css("--muted"), maxTicksLimit: 10 }, grid: { display: false } },
-          y: { ticks: { color: css("--muted"), callback: x => money(x) }, grid: { color: css("--line") } },
+          y: { ticks: { color: css("--muted"), callback: x => fmt(x) }, grid: { color: css("--line") } },
         },
       },
     });
